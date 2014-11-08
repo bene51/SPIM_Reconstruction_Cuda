@@ -7,6 +7,12 @@ public class NativeSPIMReconstructionCuda {
 		System.loadLibrary("NativeSPIMReconstructionCuda");
 	}
 
+
+	public static final int INDEPENDENT        = 0;
+	public static final int EFFICIENT_BAYESIAN = 1;
+	public static final int OPTIMIZATION_1     = 2;
+	public static final int OPTIMIZATION_2     = 3;
+
 	public synchronized static native void transform(
 			short[][] data,
 			int w,
@@ -32,6 +38,7 @@ public class NativeSPIMReconstructionCuda {
 			String[] kernelfiles,
 			int kernelH,
 			int kernelW,
+			int psfType,
 			int nViews,
 			int iterations);
 }
