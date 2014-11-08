@@ -46,6 +46,8 @@ public class Extract_PSF_Planes implements PlugIn {
 	}
 
 	// TODO check with spaces in path name
+	// TODO make sure Intel byte order is used.
+	// TODO make sure all PSFs have the same size.
 	public static void extractPSFPlanes(File spimdir, String pattern, String angles) throws IOException {
 		String dir = spimdir.getAbsolutePath().replaceAll("\\\\", "/");
 		File psfdir = new File(spimdir, "psfs");
@@ -79,13 +81,22 @@ public class Extract_PSF_Planes implements PlugIn {
 				"close(); \n";
 		IJ.runMacro(macro);
 		int[] ids = WindowManager.getIDList();
+		int w = -1, h = -1;
 		for(int id : ids) {
 			ImagePlus imp = WindowManager.getImage(id);
 			if(!imp.getTitle().startsWith("PSF"))
 				continue;
 			ImagePlus psfPlane = new ImagePlus("", extractMiddlePlane(imp));
+			if(w != -1) {
+				if(w != psfPlane.getWidth() || h != psfPlane.getHeight())
+					throw new RuntimeException("PSFs have different sizes");
+			} else {
+				w = psfPlane.getWidth();
+				h = psfPlane.getHeight();
+			}
 			IJ.save(psfPlane, new File(psfdir, imp.getTitle().substring(8) + ".raw").getAbsolutePath());
 			imp.close();
 		}
+		IJ.saveString(w + "\n" + h, new File(psfdir, "dims.txt").getAbsolutePath());
 	}
 }
