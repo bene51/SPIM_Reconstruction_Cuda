@@ -34,6 +34,10 @@ public class Transform_Cuda implements PlugIn {
 		gd.addNumericField("size_x", 0, 0);
 		gd.addNumericField("size_y", 0, 0);
 		gd.addNumericField("size_z", 0, 0);
+		gd.addNumericField("spacing_x", 1, 4);
+		gd.addNumericField("spacing_y", 1, 4);
+		gd.addNumericField("spacing_z", 1, 4);
+		gd.addCheckbox("Create_weights", true);
 		gd.showDialog();
 		if(gd.wasCanceled())
 			return;
@@ -41,23 +45,30 @@ public class Transform_Cuda implements PlugIn {
 		File spimdir = new File(gd.getNextString());
 		int[] offset = new int[3];
 		int[] size = new int[3];
+		float[] spacing = new float[3];
 		offset[0] = (int)gd.getNextNumber();
 		offset[1] = (int)gd.getNextNumber();
 		offset[2] = (int)gd.getNextNumber();
 		size[0] = (int)gd.getNextNumber();
 		size[1] = (int)gd.getNextNumber();
 		size[2] = (int)gd.getNextNumber();
+		spacing[0] = (float)gd.getNextNumber();
+		spacing[1] = (float)gd.getNextNumber();
+		spacing[2] = (float)gd.getNextNumber();
+
+		boolean createWeights = gd.getNextBoolean();
+
 		boolean useCuda = true;
-		boolean rotateX = true;
+		boolean rotateX = false;
 
 		try {
-			transform(spimdir, offset, size, rotateX, useCuda);
+			transform(spimdir, offset, size, spacing, rotateX, createWeights, useCuda);
 		} catch(Exception e) {
 			IJ.handleException(e);
 		}
 	}
 
-	public static void transform(File spimdir, int[] offset, int[] size, boolean rotateX, boolean useCuda) throws IOException {
+	public static void transform(File spimdir, int[] offset, int[] size, float[] pw, boolean rotateX, boolean createWeights, boolean useCuda) throws IOException {
 		File registrationdir = new File(spimdir, "registration");
 		String[] names = registrationdir.list(new FilenameFilter() {
 
@@ -69,7 +80,7 @@ public class Transform_Cuda implements PlugIn {
 		for(int i = 0; i < names.length; i++)
 			names[i] = names[i].substring(0, names[i].length() - 4);
 
-		transform(spimdir, names, offset, size, rotateX, useCuda);
+		transform(spimdir, names, offset, size, pw, rotateX, createWeights, useCuda);
 	}
 
 	private static void writeDims(File outfile, int w, int h, int d) {
@@ -84,39 +95,76 @@ public class Transform_Cuda implements PlugIn {
 		}
 	}
 
-	public static void transform(File spimdir, String[] names, int[] offset, int[] size, boolean rotateX, boolean useCuda) throws IOException {
+	public static void transform(File spimdir, String[] names, int[] offset, int[] size, float[] pw, boolean rotateX, boolean createWeights, boolean useCuda) throws IOException {
 		File registrationdir = new File(spimdir, "registration");
 		File outdir = new File(spimdir, "output");
+		File[] images = new File[names.length];
+		File[] dims = new File[names.length];
+		File[] registrations = new File[names.length];
+
+		for(int i = 0; i < names.length; i++) {
+			images[i] = new File(spimdir, names[i]);
+			dims[i] = new File(registrationdir, names[i] + ".dim");
+			registrations[i] = new File(registrationdir, names[i] + ".registration");
+		}
+		transform(images, dims, registrations, offset, size, pw, rotateX, createWeights, useCuda, outdir);
+	}
+
+	public static void transform(
+			File[] images,
+			File[] dims,
+			File[] registrations,
+			int[] offset,
+			int[] size,
+			float[] pw,
+			boolean rotateX,
+			boolean createWeights,
+			boolean useCuda,
+			File outdir) throws IOException {
+
+		int n = images.length;
+		int[][] dimensions = new int[n][3];
+		float[][] matrices = new float[n][12];
+		float[] zspacings = new float[n];
+		for(int i = 0; i < images.length; i++) {
+			dimensions[i] = readDims(dims[i]);
+			zspacings[i] = readTransformation(registrations[i], matrices[i]);
+		}
+		transform(images, dimensions, matrices, zspacings, offset, size, pw, rotateX, createWeights, useCuda, outdir);
+	}
+
+	public static void transform(
+			File[] images,
+			int[][] dims,
+			float[][] matrices,
+			float[] zspacing,
+			int[] offset,
+			int[] size,
+			float[] pw,
+			boolean rotateX,
+			boolean createWeights,
+			boolean useCuda,
+			File outdir) {
+
 		if(!outdir.exists())
 			outdir.mkdirs();
-		int[][] dims = new int[names.length][];
-		float[][] inverseMatrices = new float[names.length][12];
-		float[] zspacing = new float[names.length];
 		float[] max = new float[] { Float.NEGATIVE_INFINITY, Float.NEGATIVE_INFINITY, Float.NEGATIVE_INFINITY };
 		float[] min = new float[] { Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY };
 		float[] res = new float[3];
-		for(int i = 0; i < names.length; i++) {
-			System.out.println("analyzing " + names[i]);
-			dims[i] = readDims(new File(registrationdir, names[i] + ".dim"));
-			zspacing[i] = readTransformation(new File(registrationdir, names[i] + ".registration"), inverseMatrices[i]);
-
+		for(int i = 0; i < images.length; i++) {
 			int w = dims[i][0], h = dims[i][1], d = dims[i][2];
-			apply(inverseMatrices[i], 0, 0, 0, res); min(res, min); max(res, max);
-			apply(inverseMatrices[i], w, 0, 0, res); min(res, min); max(res, max);
-			apply(inverseMatrices[i], w, h, 0, res); min(res, min); max(res, max);
-			apply(inverseMatrices[i], 0, h, 0, res); min(res, min); max(res, max);
-			apply(inverseMatrices[i], 0, 0, d, res); min(res, min); max(res, max);
-			apply(inverseMatrices[i], w, 0, d, res); min(res, min); max(res, max);
-			apply(inverseMatrices[i], w, h, d, res); min(res, min); max(res, max);
-			apply(inverseMatrices[i], 0, h, d, res); min(res, min); max(res, max);
+			apply(matrices[i], 0, 0, 0, res); min(res, min); max(res, max);
+			apply(matrices[i], w, 0, 0, res); min(res, min); max(res, max);
+			apply(matrices[i], w, h, 0, res); min(res, min); max(res, max);
+			apply(matrices[i], 0, h, 0, res); min(res, min); max(res, max);
+			apply(matrices[i], 0, 0, d, res); min(res, min); max(res, max);
+			apply(matrices[i], w, 0, d, res); min(res, min); max(res, max);
+			apply(matrices[i], w, h, d, res); min(res, min); max(res, max);
+			apply(matrices[i], 0, h, d, res); min(res, min); max(res, max);
 		}
 		System.out.println("min: " + Arrays.toString(min));
 		System.out.println("max: " + Arrays.toString(max));
-		/*
-		int tw = (int)(max[0] - min[0] + 0.5);
-		int th = (int)(max[1] - min[1] + 0.5);
-		int td = (int)(max[2] - min[2] + 0.5);
-		*/
+
 		int tw, th, td;
 
 		if(size[0] == 0)
@@ -134,6 +182,10 @@ public class Transform_Cuda implements PlugIn {
 		else
 			td = size[2];
 
+		tw = Math.round(tw / pw[0]);
+		th = Math.round(th / pw[1]);
+		td = Math.round(td / pw[2]);
+
 		min[0] += offset[0];
 		min[1] += offset[1];
 		min[2] += offset[2];
@@ -143,17 +195,20 @@ public class Transform_Cuda implements PlugIn {
 		else
 			writeDims(new File(outdir, "dims.txt"), tw, th, td);
 
-		boolean createTransformedMasks = true;
 		int border = 30;
 		File maskdir = new File(outdir, "masks");
-		if(!maskdir.exists())
+		if(createWeights && !maskdir.exists())
 			maskdir.mkdir();
 
-		for(int i = 0; i < names.length; i++) {
-			invert(inverseMatrices[i]);
-			inverseMatrices[i][3]  += (min[0] * inverseMatrices[i][0] + min[1] * inverseMatrices[i][1] + min[2] * inverseMatrices[i][2]);
-			inverseMatrices[i][7]  += (min[0] * inverseMatrices[i][4] + min[1] * inverseMatrices[i][5] + min[2] * inverseMatrices[i][6]);
-			inverseMatrices[i][11] += (min[0] * inverseMatrices[i][8] + min[1] * inverseMatrices[i][9] + min[2] * inverseMatrices[i][10]);
+		float[] scaleMatrix = new float[] {pw[0], 0, 0, 0, 0, pw[1], 0, 0, 0, 0, pw[2], 0, 0, 0, 0, 1};
+
+		for(int i = 0; i < images.length; i++) {
+			invert(matrices[i]);
+			matrices[i][3]  += (min[0] * matrices[i][0] + min[1] * matrices[i][1] + min[2] * matrices[i][2]);
+			matrices[i][7]  += (min[0] * matrices[i][4] + min[1] * matrices[i][5] + min[2] * matrices[i][6]);
+			matrices[i][11] += (min[0] * matrices[i][8] + min[1] * matrices[i][9] + min[2] * matrices[i][10]);
+
+			matrices[i] = mul(matrices[i], scaleMatrix);
 
 			int targetD = td;
 			int targetH = th;
@@ -165,21 +220,21 @@ public class Transform_Cuda implements PlugIn {
 						0, 1, 0, 0,
 				};
 				invert(rotx);
-				inverseMatrices[i] = mul(inverseMatrices[i], rotx);
+				matrices[i] = mul(matrices[i], rotx);
 				targetH = td;
 				targetD = th;
 			}
 
-			String outname = names[i];
+			String outname = images[i].getName();
 			if(!outname.endsWith("raw"))
 				outname += ".raw";
 
 			File maskfile = new File(maskdir, outname);
 			transform(
-					new File(spimdir, names[i]),
+					images[i],
 					new File(outdir, outname),
-					inverseMatrices[i], targetW, targetH, targetD,
-					createTransformedMasks,
+					matrices[i], targetW, targetH, targetD,
+					createWeights,
 					maskfile,
 					border,
 					zspacing[i],
@@ -187,7 +242,19 @@ public class Transform_Cuda implements PlugIn {
 		}
 	}
 
-	public static void transform(File infile, File outfile, float[] inverseMatrix, int targetW, int targetH, int targetD, boolean createTransformedMask, File maskfile, int border, float zspacing, boolean useCuda) {
+	public static void transform(
+			File infile,
+			File outfile,
+			float[] inverseMatrix,
+			int targetW,
+			int targetH,
+			int targetD,
+			boolean createTransformedMask,
+			File maskfile,
+			int border,
+			float zspacing,
+			boolean useCuda) {
+
 		long start = System.currentTimeMillis();
 		ImagePlus imp = IJ.openImage(infile.getAbsolutePath());
 		long end = System.currentTimeMillis();
