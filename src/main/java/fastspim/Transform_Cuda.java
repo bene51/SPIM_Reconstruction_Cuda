@@ -133,6 +133,93 @@ public class Transform_Cuda implements PlugIn {
 		transform(images, dimensions, matrices, zspacings, offset, size, pw, rotateX, createWeights, useCuda, outdir);
 	}
 
+
+	/**
+	 * Calculates the transformation matrices, and also fills the <code>size</code> array
+	 * if all entries are 0.
+	 *
+	 * @param dims
+	 * @param matrices
+	 * @param zspacing
+	 * @param offset
+	 * @param size
+	 * @param rotateX
+	 * @return
+	 */
+	public static  void createRealTransformationMatrices(
+			int[][] dims,
+			float[][] matrices,
+			float[] zspacing,
+			int[] offset,
+			int[] size,
+			float[] pw,
+			boolean rotateX) {
+
+		int n = matrices.length;
+
+		float[] max = new float[] { Float.NEGATIVE_INFINITY, Float.NEGATIVE_INFINITY, Float.NEGATIVE_INFINITY };
+		float[] min = new float[] { Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY };
+		float[] res = new float[3];
+		for(int i = 0; i < n; i++) {
+			int w = dims[i][0], h = dims[i][1], d = dims[i][2];
+			apply(matrices[i], 0, 0, 0, res); min(res, min); max(res, max);
+			apply(matrices[i], w, 0, 0, res); min(res, min); max(res, max);
+			apply(matrices[i], w, h, 0, res); min(res, min); max(res, max);
+			apply(matrices[i], 0, h, 0, res); min(res, min); max(res, max);
+			apply(matrices[i], 0, 0, d, res); min(res, min); max(res, max);
+			apply(matrices[i], w, 0, d, res); min(res, min); max(res, max);
+			apply(matrices[i], w, h, d, res); min(res, min); max(res, max);
+			apply(matrices[i], 0, h, d, res); min(res, min); max(res, max);
+		}
+		System.out.println("min: " + Arrays.toString(min));
+		System.out.println("max: " + Arrays.toString(max));
+
+		if(size[0] == 0)
+			size[0] = (int)Math.ceil(max[0] - min[0]) + 1;
+
+		if(size[1] == 0)
+			size[1] = (int)Math.ceil(max[1] - min[1]) + 1;
+
+		if(size[2] == 0)
+			size[2] = (int)Math.ceil(max[2] - min[2]) + 1;
+
+		size[0] = Math.round(size[0] / pw[0]);
+		size[1] = Math.round(size[1] / pw[1]);
+		size[2] = Math.round(size[2] / pw[2]);
+
+		min[0] += offset[0];
+		min[1] += offset[1];
+		min[2] += offset[2];
+
+		float[] scaleMatrix = new float[] {pw[0], 0, 0, 0, 0, pw[1], 0, 0, 0, 0, pw[2], 0, 0, 0, 0, 1};
+
+		if(rotateX) {
+			int tmp = size[2];
+			size[2] = size[1];
+			size[1] = tmp;
+		}
+
+		for(int i = 0; i < n; i++) {
+			invert(matrices[i]);
+			matrices[i][3]  += (min[0] * matrices[i][0] + min[1] * matrices[i][1] + min[2] * matrices[i][2]);
+			matrices[i][7]  += (min[0] * matrices[i][4] + min[1] * matrices[i][5] + min[2] * matrices[i][6]);
+			matrices[i][11] += (min[0] * matrices[i][8] + min[1] * matrices[i][9] + min[2] * matrices[i][10]);
+
+			matrices[i] = mul(matrices[i], scaleMatrix);
+
+
+			if(rotateX) {
+				float[] rotx = new float[] {
+						1, 0, 0, 0,
+						0, 0, -1, size[1] - 1,
+						0, 1, 0, 0,
+				};
+				invert(rotx);
+				matrices[i] = mul(matrices[i], rotx);
+			}
+		}
+	}
+
 	public static void transform(
 			File[] images,
 			int[][] dims,
@@ -148,83 +235,18 @@ public class Transform_Cuda implements PlugIn {
 
 		if(!outdir.exists())
 			outdir.mkdirs();
-		float[] max = new float[] { Float.NEGATIVE_INFINITY, Float.NEGATIVE_INFINITY, Float.NEGATIVE_INFINITY };
-		float[] min = new float[] { Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY };
-		float[] res = new float[3];
-		for(int i = 0; i < images.length; i++) {
-			int w = dims[i][0], h = dims[i][1], d = dims[i][2];
-			apply(matrices[i], 0, 0, 0, res); min(res, min); max(res, max);
-			apply(matrices[i], w, 0, 0, res); min(res, min); max(res, max);
-			apply(matrices[i], w, h, 0, res); min(res, min); max(res, max);
-			apply(matrices[i], 0, h, 0, res); min(res, min); max(res, max);
-			apply(matrices[i], 0, 0, d, res); min(res, min); max(res, max);
-			apply(matrices[i], w, 0, d, res); min(res, min); max(res, max);
-			apply(matrices[i], w, h, d, res); min(res, min); max(res, max);
-			apply(matrices[i], 0, h, d, res); min(res, min); max(res, max);
-		}
-		System.out.println("min: " + Arrays.toString(min));
-		System.out.println("max: " + Arrays.toString(max));
 
-		int tw, th, td;
 
-		if(size[0] == 0)
-			tw = (int)Math.ceil(max[0] - min[0]) + 1;
-		else
-			tw = size[0];
+		createRealTransformationMatrices(dims, matrices, zspacing, offset, size, pw, rotateX);
 
-		if(size[1] == 0)
-			th = (int)Math.ceil(max[1] - min[1]) + 1;
-		else
-			th = size[1];
-
-		if(size[2] == 0)
-			td = (int)Math.ceil(max[2] - min[2]) + 1;
-		else
-			td = size[2];
-
-		tw = Math.round(tw / pw[0]);
-		th = Math.round(th / pw[1]);
-		td = Math.round(td / pw[2]);
-
-		min[0] += offset[0];
-		min[1] += offset[1];
-		min[2] += offset[2];
-
-		if(rotateX)
-			writeDims(new File(outdir, "dims.txt"), tw, td, th);
-		else
-			writeDims(new File(outdir, "dims.txt"), tw, th, td);
+		writeDims(new File(outdir, "dims.txt"), size[0], size[1], size[2]);
 
 		int border = 30;
 		File maskdir = new File(outdir, "masks");
 		if(createWeights && !maskdir.exists())
 			maskdir.mkdir();
 
-		float[] scaleMatrix = new float[] {pw[0], 0, 0, 0, 0, pw[1], 0, 0, 0, 0, pw[2], 0, 0, 0, 0, 1};
-
 		for(int i = 0; i < images.length; i++) {
-			invert(matrices[i]);
-			matrices[i][3]  += (min[0] * matrices[i][0] + min[1] * matrices[i][1] + min[2] * matrices[i][2]);
-			matrices[i][7]  += (min[0] * matrices[i][4] + min[1] * matrices[i][5] + min[2] * matrices[i][6]);
-			matrices[i][11] += (min[0] * matrices[i][8] + min[1] * matrices[i][9] + min[2] * matrices[i][10]);
-
-			matrices[i] = mul(matrices[i], scaleMatrix);
-
-			int targetD = td;
-			int targetH = th;
-			int targetW = tw;
-			if(rotateX) {
-				float[] rotx = new float[] {
-						1, 0, 0, 0,
-						0, 0, -1, targetD - 1,
-						0, 1, 0, 0,
-				};
-				invert(rotx);
-				matrices[i] = mul(matrices[i], rotx);
-				targetH = td;
-				targetD = th;
-			}
-
 			String outname = images[i].getName();
 			if(!outname.endsWith("raw"))
 				outname += ".raw";
@@ -233,7 +255,7 @@ public class Transform_Cuda implements PlugIn {
 			transform(
 					images[i],
 					new File(outdir, outname),
-					matrices[i], targetW, targetH, targetD,
+					matrices[i], size[0], size[1], size[2],
 					createWeights,
 					maskfile,
 					border,
