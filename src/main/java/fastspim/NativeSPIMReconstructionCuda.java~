@@ -8,16 +8,10 @@ public class NativeSPIMReconstructionCuda {
 	}
 
 
-	public static final int INDEPENDENT        = 0;
-	public static final int EFFICIENT_BAYESIAN = 1;
-	public static final int OPTIMIZATION_1     = 2;
-	public static final int OPTIMIZATION_2     = 3;
-
-	public synchronized static native int getNumCudaDevices();
-
-	public synchronized static native String getCudaDeviceName(int dev);
-
-	public synchronized static native void setCudaDevice(int dev);
+	public static final int INDEPENDENT;
+	public static final int EFFICIENT_BAYESIAN;
+	public static final int OPTIMIZATION_1;
+	public static final int OPTIMIZATION_2;
 
 	public synchronized static native void transform(
 			short[][] data,
