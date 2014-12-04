@@ -13,6 +13,12 @@ public class NativeSPIMReconstructionCuda {
 	public static final int OPTIMIZATION_1     = 2;
 	public static final int OPTIMIZATION_2     = 3;
 
+	public synchronized static native int getNumCudaDevices();
+
+	public synchronized static native String getCudaDeviceName(int dev);
+
+	public synchronized static native void setCudaDevice(int dev);
+
 	public synchronized static native void transform(
 			short[][] data,
 			int w,

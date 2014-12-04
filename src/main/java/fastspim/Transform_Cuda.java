@@ -22,9 +22,13 @@ import java.util.concurrent.TimeUnit;
 
 public class Transform_Cuda implements PlugIn {
 
-	// TODO check whether output directory exists.
 	@Override
 	public void run(String arg) {
+		int nCudaDevices = NativeSPIMReconstructionCuda.getNumCudaDevices();
+		String[] devices = new String[nCudaDevices];
+		for(int i = 0; i < nCudaDevices; i++)
+			devices[i] = NativeSPIMReconstructionCuda.getCudaDeviceName(i);
+
 		GenericDialogPlus gd = new GenericDialogPlus("Transform_Cuda");
 		gd.addDirectoryField("SPIM_directory", "");
 		// gd.addCheckbox("use_cuda", true);
@@ -38,6 +42,7 @@ public class Transform_Cuda implements PlugIn {
 		gd.addNumericField("spacing_y", 1, 4);
 		gd.addNumericField("spacing_z", 1, 4);
 		gd.addCheckbox("Create_weights", true);
+		gd.addChoice("Device", devices, devices[0]);
 		gd.showDialog();
 		if(gd.wasCanceled())
 			return;
@@ -57,11 +62,13 @@ public class Transform_Cuda implements PlugIn {
 		spacing[2] = (float)gd.getNextNumber();
 
 		boolean createWeights = gd.getNextBoolean();
+		int device = gd.getNextChoiceIndex();
 
 		boolean useCuda = true;
 		boolean rotateX = false;
 
 		try {
+			NativeSPIMReconstructionCuda.setCudaDevice(device);
 			transform(spimdir, offset, size, spacing, rotateX, createWeights, useCuda);
 		} catch(Exception e) {
 			IJ.handleException(e);
