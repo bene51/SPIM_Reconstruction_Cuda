@@ -7,7 +7,6 @@ public class NativeSPIMReconstructionCuda {
 		System.loadLibrary("NativeSPIMReconstructionCuda");
 	}
 
-
 	public static final int INDEPENDENT        = 0;
 	public static final int EFFICIENT_BAYESIAN = 1;
 	public static final int OPTIMIZATION_1     = 2;

@@ -35,7 +35,6 @@ public class Transform_Cuda implements PlugIn {
 
 		GenericDialogPlus gd = new GenericDialogPlus("Transform_Cuda");
 		gd.addDirectoryField("SPIM_directory", "");
-		// gd.addCheckbox("use_cuda", true);
 		gd.addNumericField("offset_x", 0, 0);
 		gd.addNumericField("offset_y", 0, 0);
 		gd.addNumericField("offset_z", 0, 0);
@@ -165,7 +164,6 @@ public class Transform_Cuda implements PlugIn {
 	public static  void createRealTransformationMatrices(
 			int[][] dims,
 			float[][] matrices,
-			float[] zspacing,
 			int[] offset,
 			int[] size,
 			float[] pw,
@@ -266,7 +264,7 @@ public class Transform_Cuda implements PlugIn {
 			outdir.mkdirs();
 
 
-		createRealTransformationMatrices(dims, matrices, zspacing, offset, size, pw, reslice);
+		createRealTransformationMatrices(dims, matrices, offset, size, pw, reslice);
 
 		writeDims(new File(outdir, "dims.txt"), size[0], size[1], size[2]);
 
