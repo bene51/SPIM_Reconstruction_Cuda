@@ -8,7 +8,10 @@ import ij.plugin.PlugIn;
 import ij.process.FloatProcessor;
 import ij.process.ImageProcessor;
 
+import java.io.BufferedOutputStream;
+import java.io.DataOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 
 public class Extract_PSF_Planes implements PlugIn {
@@ -32,6 +35,26 @@ public class Extract_PSF_Planes implements PlugIn {
 		} catch(Exception e) {
 			IJ.handleException(e);
 		}
+	}
+
+	public static void saveAsRaw(ImagePlus imp, File file) throws IOException {
+		int w = imp.getWidth();
+		int h = imp.getHeight();
+		int d = imp.getStackSize();
+		int wh = w * h;
+
+		DataOutputStream out = new DataOutputStream(
+				new BufferedOutputStream(
+					new FileOutputStream(file)));
+
+		for(int z = 0; z < d; z++) {
+			ImageProcessor ip = imp.getStack().getProcessor(z + 1);
+			for(int i = 0; i < wh; i++) {
+				float v = ip.getf(i);
+				out.writeFloat(v);
+			}
+		}
+		out.close();
 	}
 
 	// TODO this just works as desired if the y axis is the rotation axis;
@@ -94,7 +117,9 @@ public class Extract_PSF_Planes implements PlugIn {
 				w = psfPlane.getWidth();
 				h = psfPlane.getHeight();
 			}
-			IJ.save(psfPlane, new File(psfdir, imp.getTitle().substring(8) + ".raw").getAbsolutePath());
+			File out = new File(psfdir, imp.getTitle().substring(8) + ".raw");
+			// IJ.save(psfPlane, out.getAbsolutePath());
+			saveAsRaw(psfPlane, out);
 			imp.close();
 		}
 		IJ.saveString(w + "\n" + h, new File(psfdir, "dims.txt").getAbsolutePath());
