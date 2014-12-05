@@ -8,11 +8,12 @@ import ij.plugin.PlugIn;
 import ij.process.FloatProcessor;
 import ij.process.ImageProcessor;
 
-import java.io.BufferedOutputStream;
-import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.channels.FileChannel;
 
 public class Extract_PSF_Planes implements PlugIn {
 
@@ -37,24 +38,20 @@ public class Extract_PSF_Planes implements PlugIn {
 		}
 	}
 
-	public static void saveAsRaw(ImagePlus imp, File file) throws IOException {
-		int w = imp.getWidth();
-		int h = imp.getHeight();
-		int d = imp.getStackSize();
+	public static void saveAsRaw(FloatProcessor ip, File file) throws IOException {
+		int w = ip.getWidth();
+		int h = ip.getHeight();
 		int wh = w * h;
 
-		DataOutputStream out = new DataOutputStream(
-				new BufferedOutputStream(
-					new FileOutputStream(file)));
+		ByteBuffer bbuf = ByteBuffer.allocateDirect(4 * wh).order(ByteOrder.LITTLE_ENDIAN);
+		bbuf.asFloatBuffer().put((float[])ip.getPixels());
 
-		for(int z = 0; z < d; z++) {
-			ImageProcessor ip = imp.getStack().getProcessor(z + 1);
-			for(int i = 0; i < wh; i++) {
-				float v = ip.getf(i);
-				out.writeFloat(v);
-			}
-		}
-		out.close();
+		FileOutputStream fos = new FileOutputStream(file);
+		FileChannel channel = fos.getChannel();
+		while(bbuf.hasRemaining())
+			channel.write(bbuf);
+
+		fos.close();
 	}
 
 	// TODO this just works as desired if the y axis is the rotation axis;
@@ -69,7 +66,6 @@ public class Extract_PSF_Planes implements PlugIn {
 	}
 
 	// TODO check with spaces in path name
-	// TODO make sure Intel byte order is used.
 	// TODO make sure all PSFs have the same size.
 	public static void extractPSFPlanes(File spimdir, String pattern, String angles) throws IOException {
 		String dir = spimdir.getAbsolutePath().replaceAll("\\\\", "/");
@@ -109,7 +105,7 @@ public class Extract_PSF_Planes implements PlugIn {
 			ImagePlus imp = WindowManager.getImage(id);
 			if(!imp.getTitle().startsWith("PSF"))
 				continue;
-			ImagePlus psfPlane = new ImagePlus("", extractMiddlePlane(imp));
+			FloatProcessor psfPlane = (FloatProcessor)extractMiddlePlane(imp);
 			if(w != -1) {
 				if(w != psfPlane.getWidth() || h != psfPlane.getHeight())
 					throw new RuntimeException("PSFs have different sizes");
