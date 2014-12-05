@@ -6,7 +6,6 @@ import ij.ImagePlus;
 import ij.WindowManager;
 import ij.plugin.PlugIn;
 import ij.process.FloatProcessor;
-import ij.process.ImageProcessor;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -17,12 +16,18 @@ import java.nio.channels.FileChannel;
 
 public class Extract_PSF_Planes implements PlugIn {
 
+	public static final int X_AXIS = 0;
+	public static final int Y_AXIS = 1;
+	public static final int Z_AXIS = 2;
+
 	@Override
 	public void run(String arg) {
 		GenericDialogPlus gd = new GenericDialogPlus("Extract PSF Planes");
 		gd.addDirectoryField("SPIM_directory", "");
 		gd.addStringField("pattern_of_spim", "");
 		gd.addStringField("angles", "");
+		String[] axes = new String[] { "x-axis", "y-axis", "z-axis" };
+		gd.addChoice("Reslice result", axes, axes[1]);
 		gd.showDialog();
 		if(gd.wasCanceled())
 			return;
@@ -30,15 +35,16 @@ public class Extract_PSF_Planes implements PlugIn {
 		File spimdir = new File(gd.getNextString());
 		String pattern = gd.getNextString();
 		String angles = gd.getNextString();
+		int rotAxis = gd.getNextChoiceIndex();
 
 		try {
-			extractPSFPlanes(spimdir, pattern, angles);
+			extractPSFPlanes(spimdir, pattern, angles, rotAxis);
 		} catch(Exception e) {
 			IJ.handleException(e);
 		}
 	}
 
-	public static void saveAsRaw(FloatProcessor ip, File file) throws IOException {
+	static void saveAsRaw(FloatProcessor ip, File file) throws IOException {
 		int w = ip.getWidth();
 		int h = ip.getHeight();
 		int wh = w * h;
@@ -54,10 +60,18 @@ public class Extract_PSF_Planes implements PlugIn {
 		fos.close();
 	}
 
-	// TODO this just works as desired if the y axis is the rotation axis;
-	public static ImageProcessor extractMiddlePlane(ImagePlus imp) {
+	public static FloatProcessor extractMiddlePlane(ImagePlus imp, int rotAxis) {
+		switch(rotAxis) {
+		case X_AXIS: return extractMiddlePlaneX(imp);
+		case Y_AXIS: return extractMiddlePlaneY(imp);
+		case Z_AXIS: return extractMiddlePlaneZ(imp);
+		}
+		throw new RuntimeException("Invalid rotation axis: " + rotAxis);
+	}
+
+	public static FloatProcessor extractMiddlePlaneY(ImagePlus imp) {
 		int d = imp.getStackSize();
-		ImageProcessor ip = new FloatProcessor(imp.getWidth(), d);
+		FloatProcessor ip = new FloatProcessor(imp.getWidth(), d);
 		int y = imp.getHeight() / 2 + 1;
 		for(int z = 0; z < d; z++)
 			for(int x = 0; x < imp.getWidth(); x++)
@@ -65,8 +79,23 @@ public class Extract_PSF_Planes implements PlugIn {
 		return ip;
 	}
 
+	public static FloatProcessor extractMiddlePlaneX(ImagePlus imp) {
+		int d = imp.getStackSize();
+		FloatProcessor ip = new FloatProcessor(d, imp.getHeight());
+		int x = imp.getWidth() / 2 + 1;
+		for(int y = 0; y < imp.getHeight(); y++)
+			for(int z = 0; z < d; z++)
+				ip.setf(z, y, imp.getStack().getProcessor(z + 1).getf(x, y));
+		return ip;
+	}
+
+	public static FloatProcessor extractMiddlePlaneZ(ImagePlus imp) {
+		int z = imp.getStackSize() / 2 + 2;
+		return imp.getStack().getProcessor(z).convertToFloatProcessor();
+	}
+
 	// TODO make sure all PSFs have the same size.
-	public static void extractPSFPlanes(File spimdir, String pattern, String angles) throws IOException {
+	public static void extractPSFPlanes(File spimdir, String pattern, String angles, int rotAxis) throws IOException {
 		String dir = spimdir.getAbsolutePath().replaceAll("\\\\", "/");
 		File psfdir = new File(spimdir, "psfs");
 		if(!psfdir.exists())
@@ -104,7 +133,7 @@ public class Extract_PSF_Planes implements PlugIn {
 			ImagePlus imp = WindowManager.getImage(id);
 			if(!imp.getTitle().startsWith("PSF"))
 				continue;
-			FloatProcessor psfPlane = (FloatProcessor)extractMiddlePlane(imp);
+			FloatProcessor psfPlane = extractMiddlePlane(imp, rotAxis);
 			if(w != -1) {
 				if(w != psfPlane.getWidth() || h != psfPlane.getHeight())
 					throw new RuntimeException("PSFs have different sizes");
