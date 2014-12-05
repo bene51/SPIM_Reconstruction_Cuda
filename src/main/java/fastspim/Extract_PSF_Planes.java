@@ -94,12 +94,12 @@ public class Extract_PSF_Planes implements PlugIn {
 		return imp.getStack().getProcessor(z).convertToFloatProcessor();
 	}
 
-	// TODO make sure all PSFs have the same size.
 	public static void extractPSFPlanes(File spimdir, String pattern, String angles, int rotAxis) throws IOException {
 		String dir = spimdir.getAbsolutePath().replaceAll("\\\\", "/");
 		File psfdir = new File(spimdir, "psfs");
 		if(!psfdir.exists())
 			psfdir.mkdirs();
+		fiji.plugin.Multi_View_Deconvolution.makeAllPSFSameSize = true;
 		String macro =
 				"run(\"Multi-view deconvolution\",\n" +
 				"\"spim_data_directory=[" + dir + "] \" + \n" +
