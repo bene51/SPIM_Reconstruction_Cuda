@@ -24,8 +24,8 @@ public class Extract_PSF_Planes implements PlugIn {
 	public void run(String arg) {
 		GenericDialogPlus gd = new GenericDialogPlus("Extract PSF Planes");
 		gd.addDirectoryField("SPIM_directory", "");
-		gd.addStringField("pattern_of_spim", "");
-		gd.addStringField("angles", "");
+		gd.addStringField("Pattern of SPIM files", "");
+		gd.addStringField("Angles to process", "");
 		String[] axes = new String[] { "x-axis", "y-axis", "z-axis" };
 		gd.addChoice("Reslice result", axes, axes[1]);
 		gd.showDialog();

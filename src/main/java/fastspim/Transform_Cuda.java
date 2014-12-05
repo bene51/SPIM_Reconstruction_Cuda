@@ -33,7 +33,7 @@ public class Transform_Cuda implements PlugIn {
 		for(int i = 0; i < nCudaDevices; i++)
 			devices[i] = NativeSPIMReconstructionCuda.getCudaDeviceName(i);
 
-		GenericDialogPlus gd = new GenericDialogPlus("Transform_Cuda");
+		GenericDialogPlus gd = new GenericDialogPlus("Transform Cuda");
 		gd.addDirectoryField("SPIM_directory", "");
 		gd.addNumericField("offset_x", 0, 0);
 		gd.addNumericField("offset_y", 0, 0);
