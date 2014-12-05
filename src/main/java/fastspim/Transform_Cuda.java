@@ -22,6 +22,10 @@ import java.util.concurrent.TimeUnit;
 
 public class Transform_Cuda implements PlugIn {
 
+	public static final int NO_RESLICE = 0;
+	public static final int FROM_TOP   = 1;
+	public static final int FROM_RIGHT = 2;
+
 	@Override
 	public void run(String arg) {
 		int nCudaDevices = NativeSPIMReconstructionCuda.getNumCudaDevices();
@@ -42,6 +46,11 @@ public class Transform_Cuda implements PlugIn {
 		gd.addNumericField("spacing_y", 1, 4);
 		gd.addNumericField("spacing_z", 1, 4);
 		gd.addCheckbox("Create_weights", true);
+		String[] resliceChoice = new String[3];
+		resliceChoice[NO_RESLICE] = "No";
+		resliceChoice[FROM_TOP] = "From top";
+		resliceChoice[FROM_RIGHT] = "From left";
+		gd.addChoice("Reslice result", resliceChoice, resliceChoice[FROM_TOP]);
 		gd.addChoice("Device", devices, devices[0]);
 		gd.showDialog();
 		if(gd.wasCanceled())
@@ -62,20 +71,20 @@ public class Transform_Cuda implements PlugIn {
 		spacing[2] = (float)gd.getNextNumber();
 
 		boolean createWeights = gd.getNextBoolean();
+		int reslice = gd.getNextChoiceIndex();
 		int device = gd.getNextChoiceIndex();
 
 		boolean useCuda = true;
-		boolean rotateX = false;
 
 		try {
 			NativeSPIMReconstructionCuda.setCudaDevice(device);
-			transform(spimdir, offset, size, spacing, rotateX, createWeights, useCuda);
+			transform(spimdir, offset, size, spacing, reslice, createWeights, useCuda);
 		} catch(Exception e) {
 			IJ.handleException(e);
 		}
 	}
 
-	public static void transform(File spimdir, int[] offset, int[] size, float[] pw, boolean rotateX, boolean createWeights, boolean useCuda) throws IOException {
+	public static void transform(File spimdir, int[] offset, int[] size, float[] pw, int reslice, boolean createWeights, boolean useCuda) throws IOException {
 		File registrationdir = new File(spimdir, "registration");
 		String[] names = registrationdir.list(new FilenameFilter() {
 
@@ -87,7 +96,7 @@ public class Transform_Cuda implements PlugIn {
 		for(int i = 0; i < names.length; i++)
 			names[i] = names[i].substring(0, names[i].length() - 4);
 
-		transform(spimdir, names, offset, size, pw, rotateX, createWeights, useCuda);
+		transform(spimdir, names, offset, size, pw, reslice, createWeights, useCuda);
 	}
 
 	private static void writeDims(File outfile, int w, int h, int d) {
@@ -102,7 +111,7 @@ public class Transform_Cuda implements PlugIn {
 		}
 	}
 
-	public static void transform(File spimdir, String[] names, int[] offset, int[] size, float[] pw, boolean rotateX, boolean createWeights, boolean useCuda) throws IOException {
+	public static void transform(File spimdir, String[] names, int[] offset, int[] size, float[] pw, int reslice, boolean createWeights, boolean useCuda) throws IOException {
 		File registrationdir = new File(spimdir, "registration");
 		File outdir = new File(spimdir, "output");
 		File[] images = new File[names.length];
@@ -114,7 +123,7 @@ public class Transform_Cuda implements PlugIn {
 			dims[i] = new File(registrationdir, names[i] + ".dim");
 			registrations[i] = new File(registrationdir, names[i] + ".registration");
 		}
-		transform(images, dims, registrations, offset, size, pw, rotateX, createWeights, useCuda, outdir);
+		transform(images, dims, registrations, offset, size, pw, reslice, createWeights, useCuda, outdir);
 	}
 
 	public static void transform(
@@ -124,7 +133,7 @@ public class Transform_Cuda implements PlugIn {
 			int[] offset,
 			int[] size,
 			float[] pw,
-			boolean rotateX,
+			int reslice,
 			boolean createWeights,
 			boolean useCuda,
 			File outdir) throws IOException {
@@ -137,7 +146,7 @@ public class Transform_Cuda implements PlugIn {
 			dimensions[i] = readDims(dims[i]);
 			zspacings[i] = readTransformation(registrations[i], matrices[i]);
 		}
-		transform(images, dimensions, matrices, zspacings, offset, size, pw, rotateX, createWeights, useCuda, outdir);
+		transform(images, dimensions, matrices, zspacings, offset, size, pw, reslice, createWeights, useCuda, outdir);
 	}
 
 
@@ -160,7 +169,7 @@ public class Transform_Cuda implements PlugIn {
 			int[] offset,
 			int[] size,
 			float[] pw,
-			boolean rotateX) {
+			int reslice) {
 
 		int n = matrices.length;
 
@@ -200,10 +209,14 @@ public class Transform_Cuda implements PlugIn {
 
 		float[] scaleMatrix = new float[] {pw[0], 0, 0, 0, 0, pw[1], 0, 0, 0, 0, pw[2], 0, 0, 0, 0, 1};
 
-		if(rotateX) {
+		if(reslice == FROM_TOP) {
 			int tmp = size[2];
 			size[2] = size[1];
 			size[1] = tmp;
+		} else if(reslice == FROM_RIGHT) {
+			int tmp = size[2];
+			size[2] = size[0];
+			size[0] = tmp;
 		}
 
 		for(int i = 0; i < n; i++) {
@@ -215,7 +228,7 @@ public class Transform_Cuda implements PlugIn {
 			matrices[i] = mul(matrices[i], scaleMatrix);
 
 
-			if(rotateX) {
+			if(reslice == FROM_TOP) {  // rotate 90º around x axis
 				float[] rotx = new float[] {
 						1, 0, 0, 0,
 						0, 0, -1, size[1] - 1,
@@ -223,6 +236,15 @@ public class Transform_Cuda implements PlugIn {
 				};
 				invert(rotx);
 				matrices[i] = mul(matrices[i], rotx);
+			}
+			else if(reslice == FROM_RIGHT) {  // rotate 90ª around y axis
+				float[] roty = new float[] {
+						0, 0, 1, 0,
+						0, 1, 0, 0,
+						-1, 0, 0, size[2] - 1,
+				};
+				invert(roty);
+				matrices[i] = mul(matrices[i], roty);
 			}
 		}
 	}
@@ -235,7 +257,7 @@ public class Transform_Cuda implements PlugIn {
 			int[] offset,
 			int[] size,
 			float[] pw,
-			boolean rotateX,
+			int reslice,
 			boolean createWeights,
 			boolean useCuda,
 			File outdir) {
@@ -244,7 +266,7 @@ public class Transform_Cuda implements PlugIn {
 			outdir.mkdirs();
 
 
-		createRealTransformationMatrices(dims, matrices, zspacing, offset, size, pw, rotateX);
+		createRealTransformationMatrices(dims, matrices, zspacing, offset, size, pw, reslice);
 
 		writeDims(new File(outdir, "dims.txt"), size[0], size[1], size[2]);
 
