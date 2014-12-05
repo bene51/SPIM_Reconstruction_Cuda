@@ -65,7 +65,6 @@ public class Extract_PSF_Planes implements PlugIn {
 		return ip;
 	}
 
-	// TODO check with spaces in path name
 	// TODO make sure all PSFs have the same size.
 	public static void extractPSFPlanes(File spimdir, String pattern, String angles) throws IOException {
 		String dir = spimdir.getAbsolutePath().replaceAll("\\\\", "/");
@@ -74,10 +73,10 @@ public class Extract_PSF_Planes implements PlugIn {
 			psfdir.mkdirs();
 		String macro =
 				"run(\"Multi-view deconvolution\",\n" +
-				"\"spim_data_directory=" + dir + " \" + \n" +
-				"\"pattern_of_spim=" + pattern + " \" + \n" +
+				"\"spim_data_directory=[" + dir + "] \" + \n" +
+				"\"pattern_of_spim=[" + pattern + "] \" + \n" +
 				"\"timepoints_to_process=1 \" + \n" +
-				"\"angles=" + angles + " \" + \n" +
+				"\"angles=[" + angles + "] \" + \n" +
 				"\"imglib_container_(input=[Array container (images smaller ~2048x2048x450 px)] \" + \n" +
 				"\"imglib_container_(processing)=[Array container (images smaller ~2048x2048x450 px)] \" + \n" +
 				"\"registration=[Individual registration of channel 0] \" + \n" +
