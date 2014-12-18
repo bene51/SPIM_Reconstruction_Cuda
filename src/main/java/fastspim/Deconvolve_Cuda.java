@@ -56,11 +56,12 @@ public class Deconvolve_Cuda implements PlugIn {
 		int psfType = gd.getNextChoiceIndex();
 		int iterations = (int)gd.getNextNumber();
 
-
+		IJ.log("Starting plane-wise multi-view deconvolution");
 		try {
 			NativeSPIMReconstructionCuda.deconvolve(datafiles, outputfile, w, h, d, weightfiles, kernelfiles, kernelH, kernelW, psfType, nViews, iterations);
 		} catch(Exception e) {
 			IJ.handleException(e);
 		}
+		IJ.log("done");
 	}
 }

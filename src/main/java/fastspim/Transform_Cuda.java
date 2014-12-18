@@ -275,6 +275,7 @@ public class Transform_Cuda implements PlugIn {
 
 		for(int i = 0; i < images.length; i++) {
 			String outname = images[i].getName();
+			IJ.log("Transforming " + outname);
 			if(!outname.endsWith("raw"))
 				outname += ".raw";
 
@@ -289,6 +290,7 @@ public class Transform_Cuda implements PlugIn {
 					zspacing[i],
 					useCuda);
 		}
+		IJ.log("Done");
 	}
 
 	public static void transform(
