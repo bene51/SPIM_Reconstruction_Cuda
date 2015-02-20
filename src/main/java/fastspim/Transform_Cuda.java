@@ -331,6 +331,37 @@ public class Transform_Cuda implements PlugIn {
 			boolean useCuda,
 			File outdir) {
 
+		ImagePlus[] imps = new ImagePlus[images.length];
+		for(int i = 0; i < images.length; i++) {
+			imps[i] = IJ.openImage(images[i].getAbsolutePath());
+			imps[i].setTitle(images[i].getName());
+		}
+		transform(imps,
+				dims,
+				matrices,
+				zspacing,
+				offset,
+				size,
+				pw,
+				reslice,
+				createWeights,
+				useCuda,
+				outdir);
+	}
+
+	public static void transform(
+			ImagePlus[] images,
+			int[][] dims,
+			float[][] matrices,
+			float[] zspacing,
+			int[] offset,
+			int[] size,
+			float[] pw,
+			int reslice,
+			boolean createWeights,
+			boolean useCuda,
+			File outdir) {
+
 		if(!outdir.exists())
 			outdir.mkdirs();
 
@@ -345,10 +376,13 @@ public class Transform_Cuda implements PlugIn {
 			maskdir.mkdir();
 
 		for(int i = 0; i < images.length; i++) {
-			String outname = images[i].getName();
+			String outname = images[i].getFileInfo().fileName;
+			if(outname.equals("Untitled"))
+				outname = images[i].getTitle();
 			if(!outname.endsWith("raw"))
 				outname += ".raw";
 
+			System.out.println("outname = " + outname);
 			File maskfile = new File(maskdir, outname);
 			transform(
 					images[i],
@@ -363,7 +397,7 @@ public class Transform_Cuda implements PlugIn {
 	}
 
 	public static void transform(
-			File infile,
+			ImagePlus imp,
 			File outfile,
 			float[] inverseMatrix,
 			int targetW,
@@ -375,10 +409,6 @@ public class Transform_Cuda implements PlugIn {
 			float zspacing,
 			boolean useCuda) {
 
-		long start = System.currentTimeMillis();
-		ImagePlus imp = IJ.openImage(infile.getAbsolutePath());
-		long end = System.currentTimeMillis();
-		System.out.println("opening took " + (end - start) + " ms");
 		if(useCuda) {
 			if(imp.getType() != ImagePlus.GRAY16)
 				throw new RuntimeException("Only 16-bit grayscale images supported for CUDA");
@@ -403,6 +433,26 @@ public class Transform_Cuda implements PlugIn {
 			ImagePlus xformed = transform(imp, inverseMatrix, targetW, targetH, targetD);
 			IJ.save(xformed, outfile.getAbsolutePath() + ".tif");
 		}
+	}
+
+	public static void transform(
+			File infile,
+			File outfile,
+			float[] inverseMatrix,
+			int targetW,
+			int targetH,
+			int targetD,
+			boolean createTransformedMask,
+			File maskfile,
+			int border,
+			float zspacing,
+			boolean useCuda) {
+
+		long start = System.currentTimeMillis();
+		ImagePlus imp = IJ.openImage(infile.getAbsolutePath());
+		long end = System.currentTimeMillis();
+		System.out.println("opening took " + (end - start) + " ms");
+		transform(imp, outfile, inverseMatrix, targetW, targetH, targetD, createTransformedMask, maskfile, border, zspacing, useCuda);
 	}
 
 	public static ImagePlus transform(ImagePlus in, final float[] inv, final int w, final int h, final int d) {
