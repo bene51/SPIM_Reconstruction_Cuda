@@ -4,6 +4,8 @@ import fiji.util.gui.GenericDialogPlus;
 import ij.IJ;
 import ij.ImagePlus;
 import ij.ImageStack;
+import ij.io.FileInfo;
+import ij.io.FileOpener;
 import ij.plugin.PlugIn;
 import ij.process.ImageProcessor;
 
@@ -80,6 +82,75 @@ public class Transform_Cuda implements PlugIn {
 			transform(spimdir, offset, size, spacing, reslice, createWeights, useCuda);
 		} catch(Exception e) {
 			IJ.handleException(e);
+		}
+	}
+
+	public static ImagePlus openAndTurnBack(File file, int[] dims, int reslice) {
+		FileInfo fi = new FileInfo();
+		fi.fileFormat = FileInfo.RAW;
+		fi.fileName = file.getName();
+		fi.directory = file.getParent();
+		fi.width = dims[0];
+		fi.height = dims[1];
+		fi.offset = 0;
+
+		fi.nImages = dims[2];
+		fi.gapBetweenImages = 0;
+		fi.intelByteOrder = true;
+		fi.whiteIsZero = false;
+		fi.fileType = FileInfo.GRAY16_UNSIGNED;
+
+		FileOpener fo = new FileOpener(fi);
+		ImagePlus imp = fo.open(false);
+		turnBack(imp, reslice);
+		return imp;
+	}
+
+	public static void turnBack(ImagePlus imp, int reslice) {
+		if(reslice == NO_RESLICE)
+			return;
+		ImageProcessor[] ips = new ImageProcessor[imp.getStackSize()];
+		for(int z = 0; z < ips.length; z++)
+			ips[z] = imp.getStack().getProcessor(z + 1);
+		int wOld = imp.getWidth();
+		int hOld = imp.getHeight();
+		int dOld = imp.getStackSize();
+		if(reslice == FROM_TOP) {
+			int wNew = wOld;
+			int hNew = dOld;
+			int dNew = hOld;
+			ImagePlus ret = IJ.createImage(imp.getTitle(), wNew, hNew, dNew, imp.getBitDepth());
+			for(int z = 0; z < dNew; z++) {
+				ImageProcessor ip = ret.getStack().getProcessor(z + 1);
+				int yOld = hOld - z - 1;
+				for(int y = 0, idx = 0; y < hNew; y++) {
+					int zOld = y;
+					for(int x = 0; x < wNew; x++, idx++) {
+						try {
+							ip.setf(idx, ips[zOld].getf(x, yOld));
+						} catch(Exception e) {
+							System.out.println("x = " + x + " y = " + y + " z = " + z);
+							throw new RuntimeException(e);
+						}
+					}
+				}
+			}
+			imp.setStack(ret.getStack());
+		} else if(reslice == FROM_RIGHT) {
+			int wNew = dOld;
+			int hNew = hOld;
+			int dNew = wOld;
+			ImagePlus ret = IJ.createImage(imp.getTitle(), wNew, hNew, dNew, imp.getBitDepth());
+			for(int z = 0; z < dNew; z++) {
+				ImageProcessor ip = ret.getStack().getProcessor(z + 1);
+				int xOld = z;
+				for(int y = 0, idx = 0; y < hNew; y++) {
+					for(int x = 0; x < wNew; x++, idx++) {
+						int zOld = dOld - x - 1;
+						ip.setf(idx, ips[zOld].getf(xOld, y));
+					}
+				}
+			}
 		}
 	}
 
