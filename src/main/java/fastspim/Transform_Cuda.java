@@ -605,7 +605,7 @@ public class Transform_Cuda implements PlugIn {
 				max[i] = x[i];
 	}
 
-	private static float readTransformation(File path, float[] ret) throws IOException {
+	public static float readTransformation(File path, float[] ret) throws IOException {
 		BufferedReader in = new BufferedReader(new FileReader(path));
 		float[] m = ret;
 		for(int i = 0; i < 12; i++) {
@@ -628,7 +628,7 @@ public class Transform_Cuda implements PlugIn {
 		return (float)dz;
 	}
 
-	private static int[] readDims(File path) throws IOException {
+	public static int[] readDims(File path) throws IOException {
 		BufferedReader in = new BufferedReader(new FileReader(path));
 		int[] d = new int[3];
 		for(int i = 0; i < 3; i++) {
