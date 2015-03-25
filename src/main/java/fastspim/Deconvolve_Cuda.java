@@ -15,7 +15,7 @@ public class Deconvolve_Cuda implements PlugIn {
 
 	@Override
 	public void run(String arg) {
-		final GenericDialogPlus gd = new GenericDialogPlus("Deconvolve Cuda (Simple)");
+		final GenericDialogPlus gd = new GenericDialogPlus("Deconvolve Cuda");
 		gd.addDirectoryField("SPIM_Folder", "");
 		gd.addDirectoryField("PSF_Folder", "");
 		String[] choice = new String[] { "INDEPENDENT", "EFFICIENT_BAYESIAN", "OPTIMIZATION_1", "OPTIMIZATION_2" };

@@ -8,7 +8,7 @@ public class Deconvolve_Cuda_Advanced implements PlugIn {
 
 	@Override
 	public void run(String arg) {
-		GenericDialogPlus gd = new GenericDialogPlus("Deconvolve Cuda");
+		GenericDialogPlus gd = new GenericDialogPlus("Deconvolve Cuda (Advanced)");
 		gd.addNumericField("number_of_views", 2, 0);
 		gd.showDialog();
 		if(gd.wasCanceled())
@@ -16,7 +16,7 @@ public class Deconvolve_Cuda_Advanced implements PlugIn {
 
 		int nViews = (int)gd.getNextNumber();
 
-		gd = new GenericDialogPlus("Deconvolve Cuda");
+		gd = new GenericDialogPlus("Deconvolve Cuda (Advanced)");
 		for(int i = 0; i < nViews; i++)
 			gd.addFileField("data_view_" + i, "");
 		for(int i = 0; i < nViews; i++)
