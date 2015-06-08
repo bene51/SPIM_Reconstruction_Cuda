@@ -17,6 +17,7 @@ import java.io.FileReader;
 import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -187,17 +188,20 @@ public class Transform_Cuda implements PlugIn {
 		File[] images = new File[names.length];
 		File[] dims = new File[names.length];
 		File[] registrations = new File[names.length];
+		File[] beads = new File[names.length];
 
 		for(int i = 0; i < names.length; i++) {
 			images[i] = new File(spimdir, names[i]);
 			dims[i] = new File(registrationdir, names[i] + ".dim");
 			registrations[i] = new File(registrationdir, names[i] + ".registration");
+			beads[i] = new File(registrationdir, names[i] + ".beads.txt");
 		}
-		transform(images, dims, registrations, offset, size, pw, reslice, createWeights, useCuda, outdir);
+		transform(images, beads, dims, registrations, offset, size, pw, reslice, createWeights, useCuda, outdir);
 	}
 
 	public static void transform(
 			File[] images,
+			File[] beads,
 			File[] dims,
 			File[] registrations,
 			int[] offset,
@@ -216,7 +220,7 @@ public class Transform_Cuda implements PlugIn {
 			dimensions[i] = readDims(dims[i]);
 			zspacings[i] = readTransformation(registrations[i], matrices[i]);
 		}
-		transform(images, dimensions, matrices, zspacings, offset, size, pw, reslice, createWeights, useCuda, outdir);
+		transform(images, beads, dimensions, matrices, zspacings, offset, size, pw, reslice, createWeights, useCuda, outdir);
 	}
 
 
@@ -289,6 +293,8 @@ public class Transform_Cuda implements PlugIn {
 		}
 
 		for(int i = 0; i < n; i++) {
+			// mat^(-1) * T_min * spacing * turn,
+			// applied to (x,y,z) of output image
 			MatrixUtils.invert(matrices[i]);
 			matrices[i][3]  += (min[0] * matrices[i][0] + min[1] * matrices[i][1] + min[2] * matrices[i][2]);
 			matrices[i][7]  += (min[0] * matrices[i][4] + min[1] * matrices[i][5] + min[2] * matrices[i][6]);
@@ -320,6 +326,7 @@ public class Transform_Cuda implements PlugIn {
 
 	public static void transform(
 			File[] images,
+			File[] beads,
 			int[][] dims,
 			float[][] matrices,
 			float[] zspacing,
@@ -337,6 +344,7 @@ public class Transform_Cuda implements PlugIn {
 			imps[i].setTitle(images[i].getName());
 		}
 		transform(imps,
+				beads,
 				dims,
 				matrices,
 				zspacing,
@@ -351,6 +359,7 @@ public class Transform_Cuda implements PlugIn {
 
 	public static void transform(
 			ImagePlus[] images,
+			File[] beads,
 			int[][] dims,
 			float[][] matrices,
 			float[] zspacing,
@@ -375,6 +384,10 @@ public class Transform_Cuda implements PlugIn {
 		if(createWeights && !maskdir.exists())
 			maskdir.mkdir();
 
+		File registrationOut = new File(outdir, "registration");
+		if(beads != null)
+			registrationOut.mkdir();
+
 		for(int i = 0; i < images.length; i++) {
 			String outname = images[i].getFileInfo().fileName;
 			if(outname.equals("Untitled"))
@@ -394,8 +407,27 @@ public class Transform_Cuda implements PlugIn {
 					border,
 					zspacing[i],
 					useCuda);
+
+			if(beads == null)
+				continue;
+
+			try {
+				float[] fwd = new float[12];
+				System.arraycopy(matrices[i], 0, fwd, 0, 12);
+				MatrixUtils.invert(fwd);
+				transform(beads[i], new File(registrationOut, beads[i].getName()), fwd);
+			} catch(Exception e) {
+				e.printStackTrace();
+			}
 		}
 		IJ.log("Done");
+	}
+
+	public static void transform(File beadsIn, File beadsOut, float[] mat) throws IOException {
+		ArrayList<Bead> beads = readBeads(beadsIn);
+		for(Bead b : beads)
+			b.transform(mat);
+		writeBeads(beadsOut, beads);
 	}
 
 	public static void transform(
@@ -414,8 +446,9 @@ public class Transform_Cuda implements PlugIn {
 		if(useCuda) {
 			if(imp.getType() != ImagePlus.GRAY16)
 				throw new RuntimeException("Only 16-bit grayscale images supported for CUDA");
-			short[][] data = new short[imp.getStackSize()][];
-			for(int z = 0; z < data.length; z++)
+			int d = imp.getStackSize();//Math.min(400, imp.getStackSize());
+			short[][] data = new short[d][];
+			for(int z = 0; z < d; z++)
 				data[z] = (short[])imp.getStack().getPixels(z + 1);
 			NativeSPIMReconstructionCuda.transform(
 					data,
@@ -546,6 +579,26 @@ public class Transform_Cuda implements PlugIn {
 				max[i] = x[i];
 	}
 
+	static ArrayList<Bead> readBeads(File path) throws IOException {
+		BufferedReader buf = new BufferedReader(new FileReader(path));
+		buf.readLine();
+		String line;
+		ArrayList<Bead> beads = new ArrayList<Bead>();
+		while((line = buf.readLine()) != null)
+			beads.add(Bead.parse(line, false));
+		buf.close();
+		return beads;
+	}
+
+	static void writeBeads(File path, ArrayList<Bead> beads) throws IOException {
+		PrintStream out = new PrintStream(new FileOutputStream(path));
+		out.println("ID	ViewID\tLx\tLy\tLz\tWx\tWy\tWz\tWeight\tDescCorr\tRansacCorr");
+		for(Bead b : beads)
+			out.println(b.toLine());
+		out.close();
+	}
+
+	// ret = M * scaleMatrix(dz)
 	public static float readTransformation(File path, float[] ret) throws IOException {
 		BufferedReader in = new BufferedReader(new FileReader(path));
 		float[] m = ret;
@@ -579,5 +632,45 @@ public class Transform_Cuda implements PlugIn {
 		}
 		in.close();
 		return d;
+	}
+
+	// ID	ViewID	Lx	Ly	Lz	Wx	Wy	Wz	Weight	DescCorr	RansacCorr
+	static class Bead {
+		int id, viewId;
+		float x, y, z;
+		float weight;
+		String DescCorr, RansacCorr;
+
+		static Bead parse(String line, boolean onlyCorr) {
+			String[] toks = line.split("\t");
+			if(onlyCorr && !toks[10].contains(":"))
+				return null;
+			Bead bead = new Bead();
+			bead.id     = Integer.parseInt(toks[0]);
+			bead.viewId = Integer.parseInt(toks[1]);
+			bead.x      = Float.parseFloat(toks[2]);
+			bead.y      = Float.parseFloat(toks[3]);
+			bead.z      = Float.parseFloat(toks[4]);
+			bead.weight = Float.parseFloat(toks[8]);
+			bead.DescCorr = toks[9];
+			bead.RansacCorr = toks[10];
+			return bead;
+		}
+
+		void transform(float[] mat) {
+//			float zscaling = 6.15384f; // TODO
+//			this.z /= zscaling;
+			float tx = mat[0] * x + mat[1] * y + mat[2]  * z + mat[3];
+			float ty = mat[4] * x + mat[5] * y + mat[6]  * z + mat[7];
+			float tz = mat[8] * x + mat[9] * y + mat[10] * z + mat[11];
+			this.x = tx;
+			this.y = ty;
+			this.z = tz;
+		}
+
+		String toLine() {
+			return id + "\t" + viewId + "\t" + x + "\t" + y + "\t" + z + "\t" +
+					x + "\t" + y + "\t" + z + "\t" + weight + "\t" + DescCorr + "\t" + RansacCorr;
+		}
 	}
 }

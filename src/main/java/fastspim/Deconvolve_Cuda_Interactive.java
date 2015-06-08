@@ -1,15 +1,20 @@
 package fastspim;
 
 import fastspim.NativeSPIMReconstructionCuda.DataProvider;
+import fastspim.Transform_Cuda.Bead;
 import fiji.util.gui.GenericDialogPlus;
 import ij.IJ;
 import ij.ImagePlus;
 import ij.ImageStack;
 import ij.gui.GenericDialog;
+import ij.gui.OvalRoi;
+import ij.gui.Overlay;
+import ij.gui.Roi;
 import ij.plugin.PlugIn;
 import ij.process.ImageProcessor;
 import ij.process.ShortProcessor;
 
+import java.awt.Color;
 import java.awt.Scrollbar;
 import java.awt.event.AdjustmentEvent;
 import java.awt.event.AdjustmentListener;
@@ -28,7 +33,12 @@ import java.nio.channels.FileChannel.MapMode;
 import java.util.ArrayList;
 import java.util.Vector;
 
-public class Deconvolve_Cuda_Interactive implements PlugIn, DataProvider {
+public class Deconvolve_Cuda_Interactive implements PlugIn {
+
+	public static void main(String[] args) {
+		new ij.ImageJ();
+		new Deconvolve_Cuda_Interactive().run(null);
+	}
 
 	@Override
 	public void run(String arg) {
@@ -49,24 +59,15 @@ public class Deconvolve_Cuda_Interactive implements PlugIn, DataProvider {
 	}
 
 	private Worker worker = null;
-	private ImagePlus previewImage = null;
-
-	@Override
-	public short[][] getNextPlane() {
-		return worker.getNextPlane();
-	}
-
-	@Override
-	public void returnNextPlane(short[] plane) {
-		previewImage.getStack().setPixels(plane, 1);
-		previewImage.updateAndDraw();
-	}
+	// private ImagePlus previewImage = null;
 
 	void startPreview(String spimfolderString, String psffolderString, int psfType) {
 		File spimfolder = new File(spimfolderString);
 		File psffolder = new File(psffolderString);
 		File outputfolder = new File(spimfolder, "output");
 		File weightsfolder = new File(outputfolder, "masks");
+		File beadsfolder = new File(outputfolder, "registration");
+		boolean hasBeads = beadsfolder.exists();
 		String[] fileNames = weightsfolder.list(new FilenameFilter() {
 			@Override
 			public boolean accept(File arg0, String arg1) {
@@ -80,10 +81,13 @@ public class Deconvolve_Cuda_Interactive implements PlugIn, DataProvider {
 		File[] datafiles = new File[nViews];
 		String[] weightfiles = new String[nViews];
 		String[] kernelfiles = new String[nViews];
+		File[] beadfiles = new File[nViews];
 		for(int i = 0; i < nViews; i++) {
 			datafiles[i] = new File(outputfolder, fileNames[i]);
 			weightfiles[i] = new File(weightsfolder, fileNames[i]).getAbsolutePath();
 			kernelfiles[i] = new File(psffolder, fileNames[i]).getAbsolutePath();
+			String beadName = fileNames[i].replace(".raw", ".beads.txt");
+			beadfiles[i] = new File(beadsfolder, beadName);
 		}
 		int[] dims = null;
 		int[] psfDims = null;
@@ -111,16 +115,44 @@ public class Deconvolve_Cuda_Interactive implements PlugIn, DataProvider {
 		for(int v = 0; v < nViews; v++)
 			previewImageStack.addSlice("View " + v, new ShortProcessor(w, h, datacache[v], null));
 
-		previewImage = new ImagePlus("Preview", previewImageStack);
+		ImagePlus previewImage = new ImagePlus("Preview", previewImageStack);
 		previewImage.show();
 
+		Bead[][][] beads = null;
+		if(hasBeads) {
+			beads = new Bead[nViews][d][];
+			try {
+				for(int v = 0; v < nViews; v++) {
+					ArrayList<Bead> beadss = Transform_Cuda.readBeads(beadfiles[v]);
+					int[] lens = new int[d];
+					for(Bead b : beadss) {
+						int z = Math.round(b.z);
+						if(z >= 0 && z < d)
+							lens[z]++;
+					}
+					for(int z = 0; z < d; z++)
+						beads[v][z] = new Bead[lens[z]];
+					int[] indices = new int[d];
+					for(Bead b : beadss) {
+						int z = Math.round(b.z);
+						if(z >= 0 && z < d) {
+							int idx = indices[z];
+							beads[v][z][idx] = b;
+							indices[z]++;
+						}
+					}
+				}
+			} catch(Exception e) {
+				e.printStackTrace();
+			}
+		}
 
-		worker = new Worker(datafiles, datacache);
+		worker = new Worker(datafiles, datacache, previewImage, beads);
 
-		NativeSPIMReconstructionCuda.setDataProvider(this);
+		NativeSPIMReconstructionCuda.setDataProvider(worker);
 		NativeSPIMReconstructionCuda.deconvolve_init(w, h, 1, weightfiles, kernelfiles, kernelH, kernelW, psfType, nViews);
 
-		GenericDialog gd = new GenericDialog("Preview");
+		GenericDialog gd = new GenericDialog("Deconvolve Cuda (Interactive)");
 		gd.addSlider("Plane", 0, d - 1, plane);
 		gd.addSlider("#Iterations", 0, 50, iterations);
 
@@ -175,10 +207,6 @@ public class Deconvolve_Cuda_Interactive implements PlugIn, DataProvider {
 			worker.shutdown();
 			worker = null;
 		}
-		if(previewImage != null) {
-			previewImage.close();
-			previewImage = null;
-		}
 		try {
 			NativeSPIMReconstructionCuda.deconvolve_quit();
 		} catch(Exception e) {
@@ -212,7 +240,7 @@ public class Deconvolve_Cuda_Interactive implements PlugIn, DataProvider {
 		ra.close();
 	}
 
-	private static class Worker {
+	private static class Worker implements DataProvider {
 		private Thread thread;
 		private final Object lock = new Object();
 		private boolean shutdown = false;
@@ -221,6 +249,9 @@ public class Deconvolve_Cuda_Interactive implements PlugIn, DataProvider {
 
 		private File[] datafiles = null;
 		private short[][] datacache;
+		private Bead[][][] beads = null;
+
+		private ImagePlus previewImage;
 
 		private static class Event {
 			private int iterations;
@@ -232,6 +263,7 @@ public class Deconvolve_Cuda_Interactive implements PlugIn, DataProvider {
 			}
 		}
 
+		@Override
 		public short[][] getNextPlane() {
 			if(firstPlane) {
 				firstPlane = false;
@@ -240,11 +272,19 @@ public class Deconvolve_Cuda_Interactive implements PlugIn, DataProvider {
 			return null;
 		}
 
+		@Override
+		public void returnNextPlane(short[] plane) {
+			previewImage.getStack().setPixels(plane, 1);
+			previewImage.updateAndDraw();
+		}
+
 		private Event event = null;
 
-		public Worker(File[] dataFiles, short[][] datacache) {
+		public Worker(File[] dataFiles, short[][] datacache, ImagePlus previewImage, Bead[][][] beads) {
 			this.datafiles = dataFiles;
 			this.datacache = datacache;
+			this.beads = beads;
+			this.previewImage = previewImage;
 			thread = new Thread() {
 				@Override
 				public void run() {
@@ -263,6 +303,36 @@ public class Deconvolve_Cuda_Interactive implements PlugIn, DataProvider {
 			lastPlane = plane;
 		}
 
+		void updateOverlay(int plane) {
+			int radius = 5;
+			int rad = Math.round(radius);
+			Overlay overlay = new Overlay();
+			int nViews = beads.length;
+			for(int dz = -rad; dz <= rad; dz++) {
+				int iz = plane + dz;
+				if(iz < 0 || iz >= beads[0].length)
+					continue;
+				double rz = Math.sqrt(radius * radius - dz * dz);
+				for(int v = 0; v < nViews; v++) {
+					Bead[] inPlaneView = beads[v][iz];
+					for(Bead b : inPlaneView) {
+						Roi roi = new OvalRoi(
+								(int)Math.round(b.x - rz),
+								(int)Math.round(b.y - rz),
+								(int)Math.round(2 * rz),
+								(int)Math.round(2 * rz));
+						System.out.println("roi = " + roi);
+						roi.setStrokeColor(Color.GREEN);
+						roi.setName(b.id + ":" + b.viewId);
+						roi.setPosition(v + 2);
+						overlay.add(roi);
+					}
+				}
+			}
+			System.out.println("overlay.size = " + overlay.size());
+			previewImage.setOverlay(overlay);
+		}
+
 		public void loop() {
 			while(!shutdown) {
 				Event e = poll();
@@ -271,6 +341,7 @@ public class Deconvolve_Cuda_Interactive implements PlugIn, DataProvider {
 					return;
 				if(e.plane != lastPlane) {
 					loadDataCache(datafiles, datacache, e.plane);
+					updateOverlay(e.plane);
 				}
 				firstPlane = true;
 				System.out.println("Deconvolving plane " + e.plane);
@@ -316,6 +387,8 @@ public class Deconvolve_Cuda_Interactive implements PlugIn, DataProvider {
 			} catch (InterruptedException e) {
 				e.printStackTrace();
 			}
+			previewImage.close();
+			previewImage = null;
 		}
 	}
 }
