@@ -1,10 +1,10 @@
+.project
+.classpath
+.settings
+.factorypath
 *.swp
-*.pdb
-*.exe
-*.exp
-*.dll
-*.lib
-*.obj
-*~
 .DS_Store
 .svn
+target
+jars
+plugins
