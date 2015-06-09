@@ -444,13 +444,12 @@ public class Transform_Cuda implements PlugIn {
 			boolean useCuda) {
 
 		if(useCuda) {
-			if(imp.getType() != ImagePlus.GRAY16)
-				throw new RuntimeException("Only 16-bit grayscale images supported for CUDA");
 			int d = imp.getStackSize();//Math.min(400, imp.getStackSize());
-			short[][] data = new short[d][];
-			for(int z = 0; z < d; z++)
-				data[z] = (short[])imp.getStack().getPixels(z + 1);
-			NativeSPIMReconstructionCuda.transform(
+			if(imp.getType() == ImagePlus.GRAY16) {
+				short[][] data = new short[d][];
+				for(int z = 0; z < d; z++)
+					data[z] = (short[])imp.getStack().getPixels(z + 1);
+				NativeSPIMReconstructionCuda.transform16(
 					data,
 					imp.getWidth(),
 					imp.getHeight(),
@@ -464,6 +463,28 @@ public class Transform_Cuda implements PlugIn {
 					border,
 					zspacing,
 					maskfile.getAbsolutePath());
+			}
+			else if(imp.getType() == ImagePlus.GRAY8) {
+				byte[][] data = new byte[d][];
+				for(int z = 0; z < d; z++)
+					data[z] = (byte[])imp.getStack().getPixels(z + 1);
+				NativeSPIMReconstructionCuda.transform8(
+						data,
+						imp.getWidth(),
+						imp.getHeight(),
+						data.length,
+						inverseMatrix,
+						targetW,
+						targetH,
+						targetD,
+						outfile.getAbsolutePath(),
+						createTransformedMask,
+						border,
+						zspacing,
+						maskfile.getAbsolutePath());
+			}
+			else
+				throw new RuntimeException("Only 16-bit grayscale images supported for CUDA");
 		} else {
 			ImagePlus xformed = transform(imp, inverseMatrix, targetW, targetH, targetD);
 			IJ.save(xformed, outfile.getAbsolutePath() + ".tif");

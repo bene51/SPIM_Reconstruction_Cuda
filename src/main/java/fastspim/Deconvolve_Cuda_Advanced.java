@@ -4,6 +4,8 @@ import fiji.util.gui.GenericDialogPlus;
 import ij.IJ;
 import ij.plugin.PlugIn;
 
+import java.io.File;
+
 public class Deconvolve_Cuda_Advanced implements PlugIn {
 
 	@Override
@@ -55,10 +57,14 @@ public class Deconvolve_Cuda_Advanced implements PlugIn {
 		int kernelH = (int)gd.getNextNumber();
 		int psfType = gd.getNextChoiceIndex();
 		int iterations = (int)gd.getNextNumber();
+		int bitDepth = 8;
+		long whd = (long)w * (long)h * d;
+		if(new File(datafiles[0]).length() > whd)
+			bitDepth = 16;
 
 		IJ.log("Starting plane-wise multi-view deconvolution");
 		try {
-			NativeSPIMReconstructionCuda.deconvolve(datafiles, outputfile, w, h, d, weightfiles, kernelfiles, kernelH, kernelW, psfType, nViews, iterations);
+			NativeSPIMReconstructionCuda.deconvolve(datafiles, outputfile, w, h, d, weightfiles, kernelfiles, kernelH, kernelW, psfType, nViews, iterations, bitDepth);
 		} catch(Exception e) {
 			IJ.handleException(e);
 		}

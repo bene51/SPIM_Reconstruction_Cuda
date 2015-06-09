@@ -73,9 +73,14 @@ public class Deconvolve_Cuda implements PlugIn {
 		int kernelW = psfDims[0];
 		int kernelH = psfDims[1];
 
+		int bitDepth = 8;
+		long whd = (long)w * (long)h * d;
+		if(new File(datafiles[0]).length() > whd)
+			bitDepth = 16;
+
 		IJ.log("Starting plane-wise multi-view deconvolution");
 		try {
-			NativeSPIMReconstructionCuda.deconvolve(datafiles, outputfile, w, h, d, weightfiles, kernelfiles, kernelH, kernelW, psfType, nViews, iterations);
+			NativeSPIMReconstructionCuda.deconvolve(datafiles, outputfile, w, h, d, weightfiles, kernelfiles, kernelH, kernelW, psfType, nViews, iterations, bitDepth);
 		} catch(Exception e) {
 			IJ.handleException(e);
 		}

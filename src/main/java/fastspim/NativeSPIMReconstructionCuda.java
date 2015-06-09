@@ -28,8 +28,23 @@ public class NativeSPIMReconstructionCuda {
 
 	public synchronized static native void setCudaDevice(int dev);
 
-	public synchronized static native void transform(
+	public synchronized static native void transform16(
 			short[][] data,
+			int w,
+			int h,
+			int d,
+			float[] inverseMatrix,
+			int targetW,
+			int targetH,
+			int targetD,
+			String outfile,
+			boolean createTransformedMask,
+			int border,
+			float zspacing,
+			String maskfile);
+
+	public synchronized static native void transform8(
+			byte[][] data,
 			int w,
 			int h,
 			int d,
@@ -55,11 +70,16 @@ public class NativeSPIMReconstructionCuda {
 			int kernelW,
 			int psfType,
 			int nViews,
-			int iterations);
+			int iterations,
+			int bitDepth);
 
-	public synchronized static native void deconvolve_quit();
+	public synchronized static native void deconvolve_quit8();
 
-	public synchronized static native void deconvolve_interactive(int iterations);
+	public synchronized static native void deconvolve_quit16();
+
+	public synchronized static native void deconvolve_interactive8(int iterations);
+
+	public synchronized static native void deconvolve_interactive16(int iterations);
 
 	public synchronized static native void deconvolve_init(
 			int w,
@@ -70,22 +90,23 @@ public class NativeSPIMReconstructionCuda {
 			int kernelH,
 			int kernelW,
 			int iterationType,
-			int nViews);
+			int nViews,
+			int bitDepth);
 
-	public static short[][] getNextPlane() {
+	public static Object[] getNextPlane() {
 		if(provider == null)
 			return null;
 		return provider.getNextPlane();
 	}
 
-	public static void returnNextPlane(short[] plane) {
+	public static void returnNextPlane(Object plane) {
 		if(provider != null)
 			provider.returnNextPlane(plane);
 	}
 
 	public static interface DataProvider {
-		public short[][] getNextPlane();
+		public Object[] getNextPlane();
 
-		public void returnNextPlane(short[] plane);
+		public void returnNextPlane(Object plane);
 	}
 }

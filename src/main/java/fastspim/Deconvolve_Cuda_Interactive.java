@@ -11,6 +11,7 @@ import ij.gui.OvalRoi;
 import ij.gui.Overlay;
 import ij.gui.Roi;
 import ij.plugin.PlugIn;
+import ij.process.ByteProcessor;
 import ij.process.ImageProcessor;
 import ij.process.ShortProcessor;
 
@@ -26,6 +27,7 @@ import java.io.FileReader;
 import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.ShortBuffer;
 import java.nio.channels.FileChannel;
@@ -47,6 +49,8 @@ public class Deconvolve_Cuda_Interactive implements PlugIn {
 		gd.addDirectoryField("PSF_Folder", "");
 		String[] choice = new String[] { "INDEPENDENT", "EFFICIENT_BAYESIAN", "OPTIMIZATION_1", "OPTIMIZATION_2" };
 		gd.addChoice("Iteration_type", choice, "OPTIMIZATION_1");
+		choice = new String[] {"8-bit", "16-bit"};
+		gd.addChoice("Bit depth", choice, "16-bit");
 		gd.showDialog();
 		if(gd.wasCanceled())
 			return;
@@ -54,14 +58,15 @@ public class Deconvolve_Cuda_Interactive implements PlugIn {
 		String spimfolderString = gd.getNextString();
 		String psffolderString = gd.getNextString();
 		int psfType = gd.getNextChoiceIndex();
+		int bitDepth = gd.getNextChoiceIndex() == 0 ? 8 : 16;
 
-		startPreview(spimfolderString, psffolderString, psfType);
+		startPreview(spimfolderString, psffolderString, psfType, bitDepth);
 	}
 
 	private Worker worker = null;
 	// private ImagePlus previewImage = null;
 
-	void startPreview(String spimfolderString, String psffolderString, int psfType) {
+	void startPreview(String spimfolderString, String psffolderString, int psfType, final int bitDepth) {
 		File spimfolder = new File(spimfolderString);
 		File psffolder = new File(psffolderString);
 		File outputfolder = new File(spimfolder, "output");
@@ -108,12 +113,15 @@ public class Deconvolve_Cuda_Interactive implements PlugIn {
 		int plane = d / 2;
 		int iterations = 5;
 
-		short[][] datacache = new short[nViews][w * h];
+		Object[] datacache = new Object[nViews];
 
 		ImageStack previewImageStack = new ImageStack(w, h);
-		previewImageStack.addSlice("deconvolved", new ShortProcessor(w, h));
-		for(int v = 0; v < nViews; v++)
-			previewImageStack.addSlice("View " + v, new ShortProcessor(w, h, datacache[v], null));
+		previewImageStack.addSlice("deconvolved", bitDepth == 16 ? new ShortProcessor(w, h) : new ByteProcessor(w, h));
+		for(int v = 0; v < nViews; v++) {
+			ImageProcessor sp = bitDepth == 16 ? new ShortProcessor(w, h) : new ByteProcessor(w, h);
+			previewImageStack.addSlice("View " + v, sp);
+			datacache[v] = sp.getPixels();
+		}
 
 		ImagePlus previewImage = new ImagePlus("Preview", previewImageStack);
 		previewImage.show();
@@ -147,10 +155,10 @@ public class Deconvolve_Cuda_Interactive implements PlugIn {
 			}
 		}
 
-		worker = new Worker(datafiles, datacache, previewImage, beads);
+		worker = new Worker(datafiles, datacache, previewImage, beads, bitDepth);
 
 		NativeSPIMReconstructionCuda.setDataProvider(worker);
-		NativeSPIMReconstructionCuda.deconvolve_init(w, h, 1, weightfiles, kernelfiles, kernelH, kernelW, psfType, nViews);
+		NativeSPIMReconstructionCuda.deconvolve_init(w, h, 1, weightfiles, kernelfiles, kernelH, kernelW, psfType, nViews, bitDepth);
 
 		GenericDialog gd = new GenericDialog("Deconvolve Cuda (Interactive)");
 		gd.addSlider("Plane", 0, d - 1, plane);
@@ -176,7 +184,7 @@ public class Deconvolve_Cuda_Interactive implements PlugIn {
 		gd.addWindowListener(new WindowAdapter() {
 			@Override
 			public void windowClosed(WindowEvent e) {
-				stopPreview();
+				stopPreview(bitDepth);
 			}
 		});
 		worker.executeOnce(iterations, plane);
@@ -190,10 +198,10 @@ public class Deconvolve_Cuda_Interactive implements PlugIn {
 		previewImage.updateAndDraw();
 	}
 
-	static void loadDataCache(File[] dataFiles, short[][] datacache, int plane) {
+	static void loadDataCache(File[] dataFiles, Object[] datacache, int plane, int bitDepth) {
 		for(int v = 0; v < dataFiles.length; v++) {
 			try {
-				readFullyMapped(dataFiles[v], plane, datacache[v]);
+				readFullyMapped(dataFiles[v], plane, datacache[v], bitDepth);
 			} catch (IOException e) {
 				IJ.handleException(e);
 			}
@@ -201,14 +209,21 @@ public class Deconvolve_Cuda_Interactive implements PlugIn {
 		System.out.println("loaded data for plane " + plane);
 	}
 
-	void stopPreview() {
+	void stopPreview(int bitDepth) {
 		NativeSPIMReconstructionCuda.clearDataProvider();
 		if(worker != null) {
 			worker.shutdown();
 			worker = null;
 		}
 		try {
-			NativeSPIMReconstructionCuda.deconvolve_quit();
+			switch(bitDepth) {
+			case 8:
+				NativeSPIMReconstructionCuda.deconvolve_quit8();
+				break;
+			case 16:
+				NativeSPIMReconstructionCuda.deconvolve_quit16();
+				break;
+			}
 		} catch(Exception e) {
 			System.out.println(e.getMessage());
 		}
@@ -229,12 +244,30 @@ public class Deconvolve_Cuda_Interactive implements PlugIn {
 		return ret;
 	}
 
+	private static void readFullyMapped(File f, int plane, Object ret, int bitDepth) throws IOException {
+		if(bitDepth == 8)
+			readFullyMapped(f, plane, (byte[])ret);
+		else if(bitDepth == 16)
+			readFullyMapped(f, plane, (short[]) ret);
+	}
+
 	private static void readFullyMapped(File f, int plane, short[] ret) throws IOException {
 		RandomAccessFile ra = new RandomAccessFile(f, "r");
 		FileChannel fc = ra.getChannel();
 		long position = (long)plane * ret.length * 2L;
 		long size = ret.length * 2L;
 		ShortBuffer buf = fc.map(MapMode.READ_ONLY, position, size).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer();
+		buf.get(ret);
+		fc.close();
+		ra.close();
+	}
+
+	private static void readFullyMapped(File f, int plane, byte[] ret) throws IOException {
+		RandomAccessFile ra = new RandomAccessFile(f, "r");
+		FileChannel fc = ra.getChannel();
+		long position = (long)plane * ret.length;
+		long size = ret.length;
+		ByteBuffer buf = fc.map(MapMode.READ_ONLY, position, size).order(ByteOrder.LITTLE_ENDIAN);
 		buf.get(ret);
 		fc.close();
 		ra.close();
@@ -248,8 +281,9 @@ public class Deconvolve_Cuda_Interactive implements PlugIn {
 		private boolean firstPlane = true;
 
 		private File[] datafiles = null;
-		private short[][] datacache;
+		private Object[] datacache;
 		private Bead[][][] beads = null;
+		private int bitDepth;
 
 		private ImagePlus previewImage;
 
@@ -264,7 +298,7 @@ public class Deconvolve_Cuda_Interactive implements PlugIn {
 		}
 
 		@Override
-		public short[][] getNextPlane() {
+		public Object[] getNextPlane() {
 			if(firstPlane) {
 				firstPlane = false;
 				return datacache;
@@ -273,18 +307,19 @@ public class Deconvolve_Cuda_Interactive implements PlugIn {
 		}
 
 		@Override
-		public void returnNextPlane(short[] plane) {
+		public void returnNextPlane(Object plane) {
 			previewImage.getStack().setPixels(plane, 1);
 			previewImage.updateAndDraw();
 		}
 
 		private Event event = null;
 
-		public Worker(File[] dataFiles, short[][] datacache, ImagePlus previewImage, Bead[][][] beads) {
+		public Worker(File[] dataFiles, Object[] datacache, ImagePlus previewImage, Bead[][][] beads, int bitDepth) {
 			this.datafiles = dataFiles;
 			this.datacache = datacache;
 			this.beads = beads;
 			this.previewImage = previewImage;
+			this.bitDepth = bitDepth;
 			thread = new Thread() {
 				@Override
 				public void run() {
@@ -296,10 +331,15 @@ public class Deconvolve_Cuda_Interactive implements PlugIn {
 
 		public void executeOnce(int iterations, int plane) {
 			if(plane != lastPlane)
-				loadDataCache(datafiles, datacache, plane);
+				loadDataCache(datafiles, datacache, plane, bitDepth);
 			firstPlane = true;
 			System.out.println("Deconvolving plane " + plane);
-			NativeSPIMReconstructionCuda.deconvolve_interactive(iterations);
+			switch(bitDepth) {
+			case 8:
+				NativeSPIMReconstructionCuda.deconvolve_interactive8(iterations); break;
+			case 16:
+				NativeSPIMReconstructionCuda.deconvolve_interactive16(iterations); break;
+			}
 			lastPlane = plane;
 		}
 
@@ -340,12 +380,17 @@ public class Deconvolve_Cuda_Interactive implements PlugIn {
 				if(e == null)
 					return;
 				if(e.plane != lastPlane) {
-					loadDataCache(datafiles, datacache, e.plane);
+					loadDataCache(datafiles, datacache, e.plane, bitDepth);
 					updateOverlay(e.plane);
 				}
 				firstPlane = true;
 				System.out.println("Deconvolving plane " + e.plane);
-				NativeSPIMReconstructionCuda.deconvolve_interactive(e.iterations);
+				switch(bitDepth) {
+				case 8:
+					NativeSPIMReconstructionCuda.deconvolve_interactive8(e.iterations); break;
+				case 16:
+					NativeSPIMReconstructionCuda.deconvolve_interactive16(e.iterations); break;
+				}
 				lastPlane = e.plane;
 			}
 		}
