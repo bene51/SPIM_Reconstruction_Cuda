@@ -6,3 +6,5 @@
 *.lib
 *.obj
 *~
+.DS_Store
+.svn
