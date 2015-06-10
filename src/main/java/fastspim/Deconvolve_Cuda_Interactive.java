@@ -50,7 +50,6 @@ public class Deconvolve_Cuda_Interactive implements PlugIn {
 		String[] choice = new String[] { "INDEPENDENT", "EFFICIENT_BAYESIAN", "OPTIMIZATION_1", "OPTIMIZATION_2" };
 		gd.addChoice("Iteration_type", choice, "OPTIMIZATION_1");
 		choice = new String[] {"8-bit", "16-bit"};
-		gd.addChoice("Bit depth", choice, "16-bit");
 		gd.showDialog();
 		if(gd.wasCanceled())
 			return;
@@ -58,15 +57,14 @@ public class Deconvolve_Cuda_Interactive implements PlugIn {
 		String spimfolderString = gd.getNextString();
 		String psffolderString = gd.getNextString();
 		int psfType = gd.getNextChoiceIndex();
-		int bitDepth = gd.getNextChoiceIndex() == 0 ? 8 : 16;
 
-		startPreview(spimfolderString, psffolderString, psfType, bitDepth);
+		startPreview(spimfolderString, psffolderString, psfType);
 	}
 
 	private Worker worker = null;
 	// private ImagePlus previewImage = null;
 
-	void startPreview(String spimfolderString, String psffolderString, int psfType, final int bitDepth) {
+	void startPreview(String spimfolderString, String psffolderString, int psfType) {
 		File spimfolder = new File(spimfolderString);
 		File psffolder = new File(psffolderString);
 		File outputfolder = new File(spimfolder, "output");
@@ -114,6 +112,12 @@ public class Deconvolve_Cuda_Interactive implements PlugIn {
 		int iterations = 5;
 
 		Object[] datacache = new Object[nViews];
+
+		int tmp = 8;
+		long whd = (long)w * (long)h * d;
+		if(datafiles[0].length() > whd)
+			tmp = 16;
+		final int bitDepth = tmp;
 
 		ImageStack previewImageStack = new ImageStack(w, h);
 		previewImageStack.addSlice("deconvolved", bitDepth == 16 ? new ShortProcessor(w, h) : new ByteProcessor(w, h));
