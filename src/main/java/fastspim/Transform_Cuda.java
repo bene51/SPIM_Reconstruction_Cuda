@@ -243,6 +243,17 @@ public class Transform_Cuda implements PlugIn {
 			int[] size,
 			float[] pw,
 			int reslice) {
+		createRealTransformationMatrices(dims, matrices, offset, size, pw, reslice, false);
+	}
+
+	public static  void createRealTransformationMatrices(
+			int[][] dims,
+			float[][] matrices,
+			int[] offset,
+			int[] size,
+			float[] pw,
+			int reslice,
+			boolean dimensionsFromFirst) {
 
 		int n = matrices.length;
 
@@ -250,7 +261,7 @@ public class Transform_Cuda implements PlugIn {
 		float[] min = new float[] { Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY };
 		float[] res = new float[3];
 		for(int i = 0; i < n; i++) {
-			int w = dims[i][0], h = dims[i][1], d = dims[i][2];
+			float w = dims[i][0], h = dims[i][1], d = dims[i][2];
 			MatrixUtils.apply(matrices[i], 0, 0, 0, res); min(res, min); max(res, max);
 			MatrixUtils.apply(matrices[i], w, 0, 0, res); min(res, min); max(res, max);
 			MatrixUtils.apply(matrices[i], w, h, 0, res); min(res, min); max(res, max);
@@ -259,6 +270,8 @@ public class Transform_Cuda implements PlugIn {
 			MatrixUtils.apply(matrices[i], w, 0, d, res); min(res, min); max(res, max);
 			MatrixUtils.apply(matrices[i], w, h, d, res); min(res, min); max(res, max);
 			MatrixUtils.apply(matrices[i], 0, h, d, res); min(res, min); max(res, max);
+			if(dimensionsFromFirst)
+				break;
 		}
 		System.out.println("min: " + Arrays.toString(min));
 		System.out.println("max: " + Arrays.toString(max));
