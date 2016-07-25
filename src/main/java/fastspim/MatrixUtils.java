@@ -1,6 +1,77 @@
 package fastspim;
 
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.PrintStream;
+import java.util.ArrayList;
+import java.util.Arrays;
+
 public class MatrixUtils {
+
+	/**
+	 * Calculate the concatenated tranformation that's needed to transform data that's been cropped at
+	 * x,y,z and saves the resulting matrix back to <code>outfile</code>.
+	 * @param infile
+	 * @param outfile
+	 * @param x
+	 * @param y
+	 * @param z
+	 * @throws IOException
+	 */
+	static void transform(String infile, String outfile, float x, float y, float z) throws IOException {
+		float[] mat = new float[12];
+		float zspacing = Transform_Cuda.readTransformation(new File(infile), mat);
+		mat[2]  /= zspacing;
+		mat[6]  /= zspacing;
+		mat[10] /= zspacing;
+		float[] res = new float[3];
+		System.out.println(Arrays.toString(mat));
+		MatrixUtils.apply(mat, x, y, z * zspacing, res);
+		mat[3]  = res[0];
+		mat[7]  = res[1];
+		mat[11] = res[2];
+		System.out.println(Arrays.toString(mat));
+
+		ArrayList<String>lines = new ArrayList<String>();
+		BufferedReader buf = new BufferedReader(new FileReader(infile));
+		for(int i = 0; i < 12; i++)
+			buf.readLine();
+		String line;
+		while((line = buf.readLine()) != null) {
+			lines.add(line);
+		}
+		buf.close();
+
+		PrintStream out = new PrintStream(new FileOutputStream(outfile));
+		out.println("m00: " + mat[0]);
+		out.println("m01: " + mat[1]);
+		out.println("m02: " + mat[2]);
+		out.println("m03: " + mat[3]);
+		out.println("m10: " + mat[4]);
+		out.println("m11: " + mat[5]);
+		out.println("m12: " + mat[6]);
+		out.println("m13: " + mat[7]);
+		out.println("m20: " + mat[8]);
+		out.println("m21: " + mat[9]);
+		out.println("m22: " + mat[10]);
+		out.println("m23: " + mat[11]);
+		for(String l : lines)
+			out.println(l);
+		out.close();
+	}
+
+	public static void main(String[] args) throws IOException {
+		String infile  = "E:\\SPIM5_Deconvolution\\t00000_s000_v0.tif.registration";
+		String outfile = "E:\\SPIM5_Deconvolution\\dataset1\\registration\\t00000_s000_v0.tif.registration";
+		transform(infile, outfile, 650, 0, 169);
+
+		infile  = "E:\\SPIM5_Deconvolution\\t00000_s000_v6.tif.registration";
+		outfile = "E:\\SPIM5_Deconvolution\\dataset1\\registration\\t00000_s000_v6.tif.registration";
+		transform(infile, outfile, 650, 0, 0);
+	}
 
 	public static void invert3x3(float[] mat) {
 		double sub00 = mat[5] * mat[10] - mat[6] * mat[9];
