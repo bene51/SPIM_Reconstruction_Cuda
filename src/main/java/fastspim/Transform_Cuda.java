@@ -23,6 +23,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+import net.imglib2.RandomAccessibleInterval;
+import net.imglib2.img.display.imagej.ImageJFunctions;
+import net.imglib2.type.numeric.integer.UnsignedShortType;
+
 public class Transform_Cuda implements PlugIn {
 
 	public static final int NO_RESLICE = 0;
@@ -409,6 +413,8 @@ public class Transform_Cuda implements PlugIn {
 			if(!outname.endsWith("raw"))
 				outname += ".raw";
 
+			IJ.log("matrix[" + i + "] = " + Arrays.toString(matrices[i]));
+
 			System.out.println("outname = " + outname);
 			File maskfile = new File(maskdir, outname);
 			transform(
@@ -502,6 +508,44 @@ public class Transform_Cuda implements PlugIn {
 			ImagePlus xformed = transform(imp, inverseMatrix, targetW, targetH, targetD);
 			IJ.save(xformed, outfile.getAbsolutePath() + ".tif");
 		}
+	}
+
+	public static void transform(
+			RandomAccessibleInterval<UnsignedShortType> img,
+			File outfile,
+			float[] inverseMatrix,
+			int targetW,
+			int targetH,
+			int targetD,
+			boolean createTransformedMask,
+			File maskfile,
+			int border,
+			float zspacing,
+			boolean useCuda) {
+
+		ImagePlus imp = ImageJFunctions.wrap(img, "");
+
+		int dataw = (int)img.dimension(0);
+		int datah = (int)img.dimension(1);
+		int datad = (int)img.dimension(2);
+
+		short[][] data = new short[datad][];
+		for(int z = 0; z < datad; z++)
+			data[z] = (short[])imp.getStack().getProcessor(z + 1).duplicate().getPixels();
+		NativeSPIMReconstructionCuda.transform16(
+			data,
+			dataw,
+			datah,
+			datad,
+			inverseMatrix,
+			targetW,
+			targetH,
+			targetD,
+			outfile.getAbsolutePath(),
+			createTransformedMask,
+			border,
+			zspacing,
+			maskfile.getAbsolutePath());
 	}
 
 	public static void transform(
