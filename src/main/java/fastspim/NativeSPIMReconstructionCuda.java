@@ -28,6 +28,17 @@ public class NativeSPIMReconstructionCuda {
 
 	public synchronized static native void setCudaDevice(int dev);
 
+	public synchronized static native void transform16Interactive(
+			short[][] data,
+			int w,
+			int h,
+			int d,
+			float[] inverseMatrix,
+			int targetW,
+			int targetH,
+			int targetD,
+			TransformationCallback callback);
+
 	public synchronized static native void transform16(
 			short[][] data,
 			int w,
@@ -92,6 +103,10 @@ public class NativeSPIMReconstructionCuda {
 			int iterationType,
 			int nViews,
 			int bitDepth);
+
+	public static interface TransformationCallback {
+		public void receivePlane(Object plane);
+	}
 
 	public static Object[] getNextPlane() {
 		if(provider == null)
